@@ -164,3 +164,27 @@ def get_imbalance(t):
         t_bt = bt(t[i-1], t[i], bs[:i-1])
         bs[i-1] = t_bt
     return bs[:-1] # remove last value
+
+def get_imbalanced_df(df, price_column='price', imbalanced_column='dv', wsize=1000):
+    
+    tidx = get_imbalance(df[price_column].values)*df[imbalanced_column].iloc[1:]
+    
+    wndo = tidx.shape[0]//wsize
+    ## Expected value of bs approximated by ewm
+    E_bs = tidx.ewm(wndo).mean() # expected `bs`
+    E_T = pd.Series(range(tidx.shape[0]), index=tidx.index).ewm(wndo).mean()
+    df0 =(pd.DataFrame().assign(bs=tidx)
+      .assign(E_T=E_T).assign(E_bs=E_bs)
+      .assign(absMul=lambda df: df.E_T*np.abs(df.E_bs))
+      .assign(absTheta=tidx.cumsum().abs()))
+        
+    bars = agg_imbalance_bars(df0)
+    test_imb_bars = (pd.DataFrame(bars,columns=['start','stop','Ts'])
+                 .drop_duplicates())
+    
+    test_imb_bars.set_index('stop')['Ts'].plot()
+
+    imb_bars = df.loc[test_imb_bars.stop].drop_duplicates()
+    return imb_bars, test_imb_bars
+
+
