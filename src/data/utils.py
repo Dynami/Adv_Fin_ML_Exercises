@@ -119,3 +119,8 @@ def get_test_stats(bar_types,bar_returns,test_func,*args,**kwds):
           .T)
     return df
 
+def df_rolling_autocorr(df, window, lag=1):
+    """Compute rolling column-wise autocorrelation for a DataFrame."""
+
+    return (df.rolling(window=window)
+            .corr(df.shift(lag))) # could .dropna() here
