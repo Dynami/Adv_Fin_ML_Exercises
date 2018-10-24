@@ -410,3 +410,28 @@ def _unpickle_method(func_name,obj,cls):
 #________________________________
 import copyreg,types, multiprocessing as mp
 copyreg.pickle(types.MethodType,_pickle_method,_unpickle_method)
+
+def bbands(price, window=None, width=None, numsd=None):
+    """ returns average, upper band, and lower band"""
+    ave = price.rolling(window).mean()
+    sd = price.rolling(window).std(ddof=0)
+    if width:
+        upband = ave * (1+width)
+        dnband = ave * (1-width)
+        return price, np.round(ave,3), np.round(upband,3), np.round(dnband,3)        
+    if numsd:
+        upband = ave + (sd*numsd)
+        dnband = ave - (sd*numsd)
+        return price, np.round(ave,3), np.round(upband,3), np.round(dnband,3)
+def get_up_cross(df, col):
+    # col is price column
+    crit1 = df[col].shift(1) < df.upper.shift(1)  
+    crit2 = df[col] > df.upper
+    return df[col][(crit1) & (crit2)]
+
+def get_down_cross(df, col):
+    # col is price column    
+    crit1 = df[col].shift(1) > df.lower.shift(1) 
+    crit2 = df[col] < df.lower
+    return df[col][(crit1) & (crit2)]
+
