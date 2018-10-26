@@ -124,3 +124,6 @@ def df_rolling_autocorr(df, window, lag=1):
 
     return (df.rolling(window=window)
             .corr(df.shift(lag))) # could .dropna() here
+
+
+

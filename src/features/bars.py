@@ -304,6 +304,57 @@ def dropLabels(events, minPct=.05):
         events=events[events['bin']!=df0.argmin()]
     return events
 
+#________________________________
+def reportProgress(jobNum,numJobs,time0,task):
+    # Report progress as asynch jobs are completed
+    msg=[float(jobNum)/numJobs, (time.time()-time0)/60.]
+    msg.append(msg[1]*(1/msg[0]-1))
+    timeStamp=str(dt.datetime.fromtimestamp(time.time()))
+    msg=timeStamp+' '+str(round(msg[0]*100,2))+'% '+task+' done after '+ \
+        str(round(msg[1],2))+' minutes. Remaining '+str(round(msg[2],2))+' minutes.'
+    if jobNum<numJobs:sys.stderr.write(msg+'\r')
+    else:sys.stderr.write(msg+'\n')
+    return
+#________________________________
+def processJobs(jobs,task=None,numThreads=24):
+    # Run in parallel.
+    # jobs must contain a 'func' callback, for expandCall
+    if task is None:task=jobs[0]['func'].__name__
+    pool=mp.Pool(processes=numThreads)
+    outputs,out,time0=pool.imap_unordered(expandCall,jobs),[],time.time()
+    # Process asyn output, report progress
+    for i,out_ in enumerate(outputs,1):
+        out.append(out_)
+        reportProgress(i,len(jobs),time0,task)
+    pool.close();pool.join() # this is needed to prevent memory leaks
+    return out
+
+def expandCall(kargs):
+    # Expand the arguments of a callback function, kargs['func']
+    func=kargs['func']
+    del kargs['func']
+    out=func(**kargs)
+    return out
+
+def _pickle_method(method):
+    func_name=method.im_func.__name__
+    obj=method.im_self
+    cls=method.im_class
+    return _unpickle_method, (func_name,obj,cls)
+#________________________________
+def _unpickle_method(func_name,obj,cls):
+    for cls in cls.mro():
+        try:func=cls.__dict__[func_name]
+        except KeyError:pass
+        else:break
+    return func.__get__(obj,cls)
+#________________________________
+import copyreg,types, multiprocessing as mp
+copyreg.pickle(types.MethodType,_pickle_method,_unpickle_method)
+
+
+
+
 def linParts(numAtoms,numThreads):
     # partition of atoms with a single loop
     parts=np.linspace(0,numAtoms,min(numThreads,numAtoms)+1)
@@ -363,53 +414,6 @@ def processJobs_(jobs):
 import multiprocessing as mp
 import datetime as dt
 
-#________________________________
-def reportProgress(jobNum,numJobs,time0,task):
-    # Report progress as asynch jobs are completed
-    msg=[float(jobNum)/numJobs, (time.time()-time0)/60.]
-    msg.append(msg[1]*(1/msg[0]-1))
-    timeStamp=str(dt.datetime.fromtimestamp(time.time()))
-    msg=timeStamp+' '+str(round(msg[0]*100,2))+'% '+task+' done after '+ \
-        str(round(msg[1],2))+' minutes. Remaining '+str(round(msg[2],2))+' minutes.'
-    if jobNum<numJobs:sys.stderr.write(msg+'\r')
-    else:sys.stderr.write(msg+'\n')
-    return
-#________________________________
-def processJobs(jobs,task=None,numThreads=24):
-    # Run in parallel.
-    # jobs must contain a 'func' callback, for expandCall
-    if task is None:task=jobs[0]['func'].__name__
-    pool=mp.Pool(processes=numThreads)
-    outputs,out,time0=pool.imap_unordered(expandCall,jobs),[],time.time()
-    # Process asyn output, report progress
-    for i,out_ in enumerate(outputs,1):
-        out.append(out_)
-        reportProgress(i,len(jobs),time0,task)
-    pool.close();pool.join() # this is needed to prevent memory leaks
-    return out
-
-def expandCall(kargs):
-    # Expand the arguments of a callback function, kargs['func']
-    func=kargs['func']
-    del kargs['func']
-    out=func(**kargs)
-    return out
-
-def _pickle_method(method):
-    func_name=method.im_func.__name__
-    obj=method.im_self
-    cls=method.im_class
-    return _unpickle_method, (func_name,obj,cls)
-#________________________________
-def _unpickle_method(func_name,obj,cls):
-    for cls in cls.mro():
-        try:func=cls.__dict__[func_name]
-        except KeyError:pass
-        else:break
-    return func.__get__(obj,cls)
-#________________________________
-import copyreg,types, multiprocessing as mp
-copyreg.pickle(types.MethodType,_pickle_method,_unpickle_method)
 
 def bbands(price, window=None, width=None, numsd=None):
     """ returns average, upper band, and lower band"""
@@ -434,4 +438,123 @@ def get_down_cross(df, col):
     crit1 = df[col].shift(1) > df.lower.shift(1) 
     crit2 = df[col] < df.lower
     return df[col][(crit1) & (crit2)]
+
+def mpNumCoEvents(closeIdx, t1, molecule):
+    '''
+    Compute the number of concurrent events per bar
+    +molecule[0] is the date of the first event on which the weight will be computed
+    +molecule[-1] is the date of the last event on which the weight will be computed
+    Any event that starts before t1[molecule].max() impacts the count
+    '''
+    #1) Find any events that span the period molecule[0] molecule[-1]
+    t1 = t1.fillna(closeIdx[-1])
+    t1 = t1[t1 >= molecule[0]]
+    t1 = t1.loc[:t1[molecule].max()]
+    #2) Count events spanning the bar
+    iloc = closeIdx.searchsorted(np.array([t1.index[0], t1.max()]))
+    count = pd.Series(0, index=closeIdx[iloc[0]:iloc[-1]+1])
+    for tIn, tOut in t1.iteritems():
+        count.loc[tIn:tOut] += 1
+    return count.loc[molecule[0]:t1[molecule].max()]
+
+
+def getWeights(d, size):
+    # Threshold  > 0
+    w=[1.]
+    for k in range(1, size):
+        w_ = -w[-1]/k*(d-k+1)
+        w.append(w_)
+    w = np.array(w[::-1]).reshape(-1, 1)
+    return w
+
+# ------------------------
+def plotWeights(dRange, nPlots, size):
+    w = pd.DataFrame()
+    for d in np.linspace(dRange[0], dRange[1], nPlots):
+        w_ = getWeights(d, size=size)
+        w_ = pd.DataFrame(w_, index=range(w_.shape[0])[::-1], columns=[d])
+        w = w.join(w_, how='outer')
+    ax = w.plot(figsize=(12, 8))
+    ax.legend(loc='lower right')
+    plt.show()
+    return
+
+def mpSampleTW(t1, numCoEvents, molecule):
+    # Derive average uniqueness over the event's lifespan
+    wght = pd.Series(index=molecule)
+    for tIn, tOut in t1.loc[wght.index].iteritems():
+        wght.loc[tIn] = (1./numCoEvents.loc[tIn:tOut]).mean()
+    return wght
+
+def acf(x, length=20):
+    return np.array([1]+[np.corrcoef(x[:-i], x[i:])[0,1] for i in range(1, length)])
+
+def fractDiff(series, d, thres=0.1):
+    '''
+    Increasing width window, with treatment of NaNs
+    Note 1. for thres = 1, nothing is skipped
+    Note 2. d can be any positive frational, not necesserly bounded in [0, 1]
+    '''
+    #1) Compute weights for the longest series
+    w = getWeights(d, series.shape[0])
+    #2) Determine initial calcs to be skipped based on weight-loss threshold
+    w_ = np.cumsum(abs(w))
+    w_ /= w_[-1]
+    skip = w_[w_ > thres].shape[0]
+    #3) Apply weights to values
+    df = {}
+    for name in series.columns:
+        seriesF, df_ = series[[name]].fillna(method='ffill').dropna(), pd.Series()
+        for iloc in range(skip, seriesF.shape[0]):
+            loc = seriesF.index[iloc]
+            if not np.isinf(series.loc[loc, name]): 
+                continue #exclude Na
+            df_[loc] = np.dot(W[-(iloc+1):, :].T, seriesF.loc[:loc])[0, 0]
+            k*(d-k+1)
+        df[name] = df_.copy(deep=True)
+    df = pd.concat(df, axis=1)
+    return df
+
+def getWeights_FFD(d, thres):
+    w, k = [1.], 1
+    while True:
+        w_ = -w[-1]/k*(d-k+1)
+        if(abs(w_) < thres): 
+            break
+        w.append(w_) 
+        k+=1
+    return np.array(w[::-1]).reshape(-1,1)
+#---------------------------------
+def fracDiff_FFD(series, d, thres=1e-5):
+    # Constant widht window (new solution)
+    w = getWeights_FFD(d, thres)
+    widht = len(w)-1
+    df = {}
+    for name in series.columns:
+        seriesF = series[[name]].fillna(method='ffill').dropna()
+        df_ = pd.Series()
+        for iloc1 in range(widht, seriesF.shape[0]):
+            loc0 = seriesF.index[iloc1 - widht]
+            loc1 = seriesF.index[iloc1]
+            #print(loc0, loc1, widht)
+            if(not np.isfinite(series.loc[loc1, name])):
+                continue # Exclude NaNs
+            #print('>> ',np.dot(w.T, seriesF.loc[loc0:loc1])[0, 0])
+            df_[loc1] = np.dot(w.T, seriesF.loc[loc0:loc1])[0, 0]
+        df[name] = df_.copy(deep=True)
+    df = pd.concat(df, axis=1)
+    return df
+#----------------------------
+def plotWeights_FFD(dRange, nPlots, size):
+    w = pd.DataFrame()
+    for d in np.linspace(dRange[0], dRange[1], nPlots):
+        w_ = getWeights_FFD(d, thres=0.01)
+        w_ = pd.DataFrame(w_, index=range(w_.shape[0])[::-1], columns=[d])
+        w = w.join(w_, how='outer')
+    ax = w.plot(figsize=(12, 8))
+    ax.legend(loc='lower right')
+    plt.show()
+    return
+
+
 
