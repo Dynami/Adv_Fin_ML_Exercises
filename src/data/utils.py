@@ -5,6 +5,7 @@ from tqdm import tqdm, tqdm_notebook
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 import scipy.stats as stats
+from dask import dataframe as dd
 
 def cprint(df):
     if not isinstance(df, pd.DataFrame):
@@ -126,4 +127,11 @@ def df_rolling_autocorr(df, window, lag=1):
             .corr(df.shift(lag))) # could .dropna() here
 
 
-
+def dask_resample(ser, freq='L'):
+    dds = dd.from_pandas(ser, chunksize=len(ser)//100)
+    tdf = (dds
+           .resample(freq)
+           .mean()
+           .dropna()
+          ).compute()
+    return tdf
