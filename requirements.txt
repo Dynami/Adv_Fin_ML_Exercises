@@ -8,7 +8,7 @@ certifi==2018.10.15
 chardet==3.0.4
 cloudpickle==0.6.1
 command-not-found==0.3
-cryptography==2.1.4
+cryptography==2.3
 cupshelpers==1.0
 cycler==0.10.0
 dask==0.19.4
@@ -60,7 +60,7 @@ mizani==0.5.2
 mugshot==0.4.0
 nbconvert==5.4.0
 nbformat==4.4.0
-notebook==5.7.0
+notebook==5.7.2
 numba==0.40.1
 numpy==1.15.3
 oauth==1.0.1
