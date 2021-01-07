@@ -49,7 +49,7 @@ lazr.uri==1.0.3
 lightdm-gtk-greeter-settings==1.2.2
 llvmlite==0.25.0
 logzero==1.5.0
-lxml==4.2.5
+lxml==4.6.2
 Markdown==3.0.1
 MarkupSafe==1.0
 matplotlib==3.0.1
